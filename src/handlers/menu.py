@@ -29,8 +29,12 @@ router = Router()
 log = logging.getLogger(__name__)
 
 
+def _now() -> datetime:
+    return datetime.now(ZoneInfo(TIMEZONE)).replace(tzinfo=None)
+
+
 def _today() -> date:
-    return datetime.now(ZoneInfo(TIMEZONE)).date()
+    return _now().date()
 
 
 async def _edit(message: Message, text: str, **kwargs) -> None:
@@ -63,7 +67,7 @@ async def today(message: Message) -> None:
     d = _today()
     lessons = await _guard(message, session.teacher_week(message.from_user.id, d))
     if lessons is not None:
-        await message.answer(formatting.lessons_day("Bugungi darslarim", d, lessons))
+        await message.answer(formatting.lessons_day("Bugungi darslarim", d, lessons, _now()))
 
 
 @router.message(F.text == BTN_WEEK)
@@ -71,7 +75,7 @@ async def week(message: Message) -> None:
     lessons = await _guard(message, session.teacher_week(message.from_user.id, _monday(0)))
     if lessons is not None:
         await message.answer(
-            formatting.lessons_week("Haftalik jadvalim", _monday(0), lessons), reply_markup=week_nav_kb(0)
+            formatting.lessons_week("Haftalik jadvalim", _monday(0), lessons, _today()), reply_markup=week_nav_kb(0)
         )
 
 
@@ -82,7 +86,7 @@ async def week_nav(call: CallbackQuery, callback_data: WeekCb) -> None:
     if lessons is not None:
         await _edit(
             call.message,
-            formatting.lessons_week("Haftalik jadvalim", monday, lessons),
+            formatting.lessons_week("Haftalik jadvalim", monday, lessons, _today()),
             reply_markup=week_nav_kb(callback_data.offset),
         )
     await call.answer()
@@ -92,7 +96,7 @@ async def week_nav(call: CallbackQuery, callback_data: WeekCb) -> None:
 async def classes(message: Message) -> None:
     t = await _guard(message, session.teacher(message.from_user.id))
     if t is not None:
-        await message.answer(f"📚 <b>Sinflaringiz</b> ({len(t.classes)}):", reply_markup=classes_kb(t.classes))
+        await message.answer(formatting.classes_title(len(t.classes)), reply_markup=classes_kb(t.classes))
 
 
 @router.callback_query(ClassCb.filter())
@@ -105,16 +109,16 @@ async def class_action(call: CallbackQuery, callback_data: ClassCb) -> None:
     name = next((c.name for c in t.classes if c.group_id == gid), "Sinf")
 
     if callback_data.action == "list":
-        await _edit(call.message, f"📚 <b>Sinflaringiz</b> ({len(t.classes)}):", reply_markup=classes_kb(t.classes))
+        await _edit(call.message, formatting.classes_title(len(t.classes)), reply_markup=classes_kb(t.classes))
     elif callback_data.action == "menu":
-        await _edit(call.message, f"📚 <b>{formatting.escape(name)}</b> sinfi", reply_markup=class_menu_kb(gid))
+        await _edit(call.message, formatting.class_title(name), reply_markup=class_menu_kb(gid))
     elif callback_data.action == "week":
         monday = _monday(callback_data.offset)
         lessons = await _guard(call.message, session.class_week(tg_id, gid, monday))
         if lessons is not None:
             await _edit(
                 call.message,
-                formatting.lessons_week(f"{name} — dars jadvali", monday, lessons),
+                formatting.lessons_week(f"{name} — dars jadvali", monday, lessons, _today()),
                 reply_markup=class_week_kb(gid, callback_data.offset),
             )
     elif callback_data.action == "hw":

@@ -45,7 +45,7 @@ def week_nav_kb(offset: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="◀️ Oldingi", callback_data=WeekCb(offset=offset - 1))
     if offset:
-        b.button(text="Joriy hafta", callback_data=WeekCb(offset=0))
+        b.button(text="🔄 Joriy hafta", callback_data=WeekCb(offset=0))
     b.button(text="Keyingi ▶️", callback_data=WeekCb(offset=offset + 1))
     return b.as_markup()
 
@@ -53,8 +53,8 @@ def week_nav_kb(offset: int) -> InlineKeyboardMarkup:
 def classes_kb(classes: list[SchoolClass]) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for c in classes:
-        b.button(text=c.name, callback_data=ClassCb(group_id=c.group_id, action="menu"))
-    b.adjust(4)
+        b.button(text=f"👥 {c.name}", callback_data=ClassCb(group_id=c.group_id, action="menu"))
+    b.adjust(3)
     return b.as_markup()
 
 
@@ -70,7 +70,7 @@ def class_menu_kb(group_id: str) -> InlineKeyboardMarkup:
 def class_week_kb(group_id: str, offset: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="◀️", callback_data=ClassCb(group_id=group_id, action="week", offset=offset - 1))
-    b.button(text="Joriy", callback_data=ClassCb(group_id=group_id, action="week", offset=0))
+    b.button(text="🔄 Joriy", callback_data=ClassCb(group_id=group_id, action="week", offset=0))
     b.button(text="▶️", callback_data=ClassCb(group_id=group_id, action="week", offset=offset + 1))
     b.button(text="⬅️ Sinf menyusi", callback_data=ClassCb(group_id=group_id, action="menu"))
     b.adjust(3, 1)
