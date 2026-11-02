@@ -1,0 +1,164 @@
+"""HTML → plain data for the emaktab pages the bot shows."""
+import re
+from dataclasses import dataclass, field
+from datetime import date
+from urllib.parse import parse_qs, urlparse
+
+from bs4 import BeautifulSoup
+
+TIME_RE = re.compile(r"\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}")
+CELL_RE = re.compile(r"^d(\d{8})_(\d+)$")
+
+
+@dataclass
+class SchoolClass:
+    name: str
+    group_id: str
+
+
+@dataclass
+class Lesson:
+    day: date
+    number: int
+    subject: str
+    time: str = ""
+    room: str = ""
+    teacher: str = ""
+    class_name: str = ""
+
+
+@dataclass
+class Homework:
+    text: str
+    subject: str
+    class_name: str
+    lesson: str
+    status: str
+
+
+@dataclass
+class TeacherInfo:
+    full_name: str
+    teacher_id: str
+    school_id: str
+    school_name: str
+    classes: list[SchoolClass] = field(default_factory=list)
+
+
+def _soup(html: str) -> BeautifulSoup:
+    return BeautifulSoup(html, "lxml")
+
+
+def _clean(s: str) -> str:
+    return " ".join(s.split())
+
+
+def _query(url: str, key: str) -> str:
+    return parse_qs(urlparse(url).query).get(key, [""])[0]
+
+
+def _cell_day(td_id: str) -> tuple[date, int] | None:
+    m = CELL_RE.match(td_id or "")
+    if not m:
+        return None
+    d = m.group(1)
+    return date(int(d[:4]), int(d[4:6]), int(d[6:])), int(m.group(2))
+
+
+def parse_my_classes(html: str) -> list[SchoolClass]:
+    """/v2/myclasses: every class link points to /v2/class?class=<id>."""
+    seen, out = set(), []
+    content = _soup(html).find(id="content")
+    for a in content.find_all("a", href=True) if content else []:
+        if "/v2/class?" not in a["href"]:
+            continue
+        gid = _query(a["href"], "class")
+        if gid and gid not in seen:
+            seen.add(gid)
+            out.append(SchoolClass(_clean(a.get_text()), gid))
+    return out
+
+
+def parse_school_id(html: str) -> str:
+    content = _soup(html).find(id="content")
+    for a in content.find_all("a", href=True) if content else []:
+        if sid := _query(a["href"], "school"):
+            return sid
+    return ""
+
+
+def parse_teacher_select(html: str) -> tuple[str, str]:
+    """Teachers tab of /v2/schedules preselects the logged-in teacher: (id, full name)."""
+    sel = _soup(html).find("select", attrs={"name": "teacher"})
+    opt = sel.find("option", selected=True) if sel else None
+    return (opt.get("value", ""), _clean(opt.get_text())) if opt else ("", "")
+
+
+def parse_school_name(html: str) -> str:
+    a = _soup(html).select_one("ul.old-site-crumbs a, #content a[href*='/v2/school?school=']")
+    return _clean(a.get_text()) if a else ""
+
+
+def parse_teacher_week(html: str) -> list[Lesson]:
+    """Teachers tab of /v2/schedules: table.scheduleStaff, cells id=d<YYYYMMDD>_<n>."""
+    out = []
+    table = _soup(html).find("table", class_="scheduleStaff")
+    for td in table.find_all("td", id=CELL_RE) if table else []:
+        day, number = _cell_day(td["id"])
+        for li in td.find_all("li", attrs={"data-lessonid": True}):
+            subject = li.find("a", class_="aL")
+            cls = li.select_one("p a.orange")
+            ps = li.find_all("p", recursive=False)
+            time = TIME_RE.search(li.get_text(" "))
+            out.append(Lesson(
+                day=day,
+                number=number,
+                subject=_clean(subject.get_text()).replace("...", "…") if subject else "",
+                time=_clean(time.group(0)) if time else "",
+                room=_clean(ps[-1].get_text()) if len(ps) > 1 else "",
+                class_name=_clean(cls.get_text()) if cls else "",
+            ))
+    return sorted(out, key=lambda x: (x.day, x.number))
+
+
+def parse_class_week(html: str) -> list[Lesson]:
+    """/v2/schedules/view?group=…: table#editor, one div.dL per lesson."""
+    out = []
+    table = _soup(html).find("table", id="editor")
+    for td in table.find_all("td", id=CELL_RE) if table else []:
+        day, number = _cell_day(td["id"])
+        for div in td.find_all("div", class_="dL"):
+            subject = div.find("a", class_="aL")
+            teacher = div.find("p", attrs={"data-test-id": "teacher"})
+            time = div.find("p", attrs={"data-test-id": "time"})
+            room = div.find("p", attrs={"data-test-id": "room"})
+            out.append(Lesson(
+                day=day,
+                number=number,
+                subject=(subject.get("title") or _clean(subject.get_text())) if subject else "",
+                time=_clean(time.get_text()) if time else "",
+                room=_clean(room.get_text()) if room else "",
+                teacher=_clean(teacher.get_text()) if teacher else "",
+            ))
+    return sorted(out, key=lambda x: (x.day, x.number))
+
+
+def parse_homework(html: str) -> tuple[int, list[Homework]]:
+    """/v2/homework?view=List: table.hmw, columns: text, subject, class, lesson, report, status."""
+    soup = _soup(html)
+    found = soup.find("p", class_="found")
+    total = int(re.sub(r"\D", "", found.get_text()) or 0) if found else 0
+    out = []
+    table = soup.find("table", class_="hmw")
+    for tr in table.find_all("tr")[1:] if table else []:
+        tds = tr.find_all("td")
+        if len(tds) < 6:
+            continue
+        out.append(Homework(
+            text=_clean(tds[0].get_text()),
+            subject=_clean(tds[1].get_text()),
+            class_name=_clean(tds[2].get_text()),
+            lesson=_clean(tds[3].get_text(" ")),
+            status=_clean(tds[5].get_text()),
+        ))
+    return total, out
