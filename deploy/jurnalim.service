@@ -1,0 +1,15 @@
+[Unit]
+Description=Jurnalim Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/jurnalim
+ExecStart=/home/jurnalim/.venv/bin/python /home/jurnalim/run.py
+Restart=always
+RestartSec=5
+MemoryMax=250M
+
+[Install]
+WantedBy=multi-user.target
