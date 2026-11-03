@@ -11,7 +11,7 @@ and homework right in Telegram. Python 3.12, aiogram 3, SQLite.
 - 🗓 **Bugungi darslarim** — today's lessons with finished ✅ / current 🔴 / next lesson
 - 📅 **Haftalik jadvalim** — weekly schedule with week navigation
 - 📚 **Sinflarim** — every class: its weekly schedule and homework list
-- ✏️ **Maqom berish** — class → homework → student → new status (Tekshirish va yopish / Qayta ko‘rib chiqishga / Bekor qilish), with confirmation
+- ✏️ **Maqom berish** — class → homework → student → new status (Tekshirish va yopish / Qayta ko‘rib chiqishga / Bekor qilish), with confirmation; or 👥 one action for every student it applies to
 - 📊 **BSB / ChSB** — per class, subject and quarter: each student's BSB/ChSB points and quarter grade, class averages and grade counts (from eMaktab's "Sinf bo'yicha BSB/CHSB detalizatsiyasi" report, built through its GET-only handlers)
 - 👤 **Profil** — name, school, classes
 - 🔑 Login with eMaktab credentials; if the site asks for a captcha, the user solves it in the chat

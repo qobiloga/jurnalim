@@ -274,3 +274,32 @@ def status_confirm(name: str, hw_text: str, label: str, action: str) -> str:
     return (f"⚠️ <b>Tasdiqlang</b>\n\n👤 {escape(name)}\n📄 {escape(hw_text)}\n\n"
             f"{escape(label)}  ➜  <b>{ACTION_TEXT[action]}</b>\n\n"
             "<i>O‘zgarish eMaktab'da saqlanadi va o‘quvchi hamda ota-onasiga ko‘rinadi.</i>")
+
+
+BULK_TEXT = {"close": "✅ Tekshirish va yopish (Bajarildi)", "reopen": "🔁 Qayta ko‘rib chiqishga",
+             "cancel": "🚫 Bekor qilish"}
+
+
+def status_bulk_pick(class_name: str, total: int, counts: dict[str, int]) -> str:
+    text = (f"👥 <b>Hammaga maqom berish</b>  ·  👥 {escape(class_name)}\n"
+            f"Vazifada {total} ta o‘quvchi.\n\n")
+    if not any(counts.values()):
+        return text + "Hozirgi maqomlarda ommaviy o‘zgartirish mumkin emas."
+    return text + "👇 Amalni tanlang (qavsda — nechta o‘quvchiga qo‘llanadi):"
+
+
+def status_bulk_confirm(class_name: str, hw_text: str, bulk: str, changing: int, total: int) -> str:
+    skip = total - changing
+    return (f"⚠️ <b>Tasdiqlang</b>  ·  👥 {escape(class_name)}\n📄 {escape(hw_text)}\n\n"
+            f"Amal: <b>{BULK_TEXT[bulk]}</b>\n"
+            f"✏️ O‘zgaradi: <b>{changing}</b> ta o‘quvchi"
+            + (f"\n➖ O‘zgarmaydi: {skip} ta (bu amal ularning hozirgi maqomiga qo‘llanmaydi)" if skip else "")
+            + "\n\n<i>O‘zgarishlar eMaktab'da saqlanadi va o‘quvchilar hamda ota-onalarga ko‘rinadi.</i>")
+
+
+def status_bulk_result(done: int, errors: list[str]) -> str:
+    note = f"✅ <b>Saqlandi:</b> {done} ta o‘quvchining maqomi o‘zgardi."
+    if errors:
+        shown = "\n".join(f"• {escape(e)}" for e in errors[:5])
+        note += f"\n❌ <b>{len(errors)} tasi o‘zgarmadi:</b>\n{shown}" + ("\n…" if len(errors) > 5 else "")
+    return note

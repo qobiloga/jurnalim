@@ -166,8 +166,9 @@ def status_students_kb(group_id: str, work_id: str, students: list, short) -> In
     for st in students:
         b.button(text=f"{STATUS_ICONS.get(st.code, '🔘')} {short(st.name)}",
                  callback_data=StatusCb(step="stu", g=b36(group_id), w=b36(work_id), p=b36(st.person_id)))
+    b.button(text="👥 Hammaga maqom berish", callback_data=StatusCb(step="all", g=b36(group_id), w=b36(work_id)))
     b.button(text="⬅️ Vazifalar", callback_data=StatusCb(step="cls", g=b36(group_id)))
-    b.adjust(*([2] * (len(students) // 2) + [1] * (len(students) % 2)), 1)
+    b.adjust(*([2] * (len(students) // 2) + [1] * (len(students) % 2)), 1, 1)
     return b.as_markup()
 
 
@@ -186,5 +187,29 @@ def status_confirm_kb(group_id: str, work_id: str, person_id: str, action: str) 
     ids = dict(g=b36(group_id), w=b36(work_id), p=b36(person_id))
     b.button(text="✅ Tasdiqlash", callback_data=StatusCb(step="do", a=action, **ids))
     b.button(text="❌ Bekor", callback_data=StatusCb(step="stu", **ids))
+    b.adjust(2)
+    return b.as_markup()
+
+
+BULK_LABELS = {"close": "✅ Hammasini tekshirish va yopish", "reopen": "🔁 Hammasini qayta ko‘rib chiqishga",
+               "cancel": "🚫 Hammasini bekor qilish"}
+
+
+def status_bulk_kb(group_id: str, work_id: str, counts: dict[str, int]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    ids = dict(g=b36(group_id), w=b36(work_id))
+    for bulk, n in counts.items():
+        if n:
+            b.button(text=f"{BULK_LABELS[bulk]} ({n})", callback_data=StatusCb(step="allc", a=bulk, **ids))
+    b.button(text="⬅️ O‘quvchilar", callback_data=StatusCb(step="hw", **ids))
+    b.adjust(1)
+    return b.as_markup()
+
+
+def status_bulk_confirm_kb(group_id: str, work_id: str, bulk: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    ids = dict(g=b36(group_id), w=b36(work_id))
+    b.button(text="✅ Tasdiqlash", callback_data=StatusCb(step="alldo", a=bulk, **ids))
+    b.button(text="❌ Bekor", callback_data=StatusCb(step="all", **ids))
     b.adjust(2)
     return b.as_markup()

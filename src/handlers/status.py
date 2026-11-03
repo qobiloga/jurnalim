@@ -15,6 +15,8 @@ from ..keyboards import (
     BTN_STATUS,
     StatusCb,
     status_actions_kb,
+    status_bulk_confirm_kb,
+    status_bulk_kb,
     status_classes_kb,
     status_confirm_kb,
     status_homework_kb,
@@ -82,6 +84,38 @@ async def step(call: CallbackQuery, callback_data: StatusCb) -> None:
             hw = next((h for h in items if h.work_id == wid), None)
             await _edit(call.message, formatting.status_confirm(st.name, hw.text if hw else "", st.label, cb.a),
                         reply_markup=status_confirm_kb(gid, wid, pid, cb.a))
+    elif cb.step in ("all", "allc"):
+        detail = await _guard(call.message, session.homework_detail(tg_id, wid, fresh=True))
+        if detail is None:
+            return await call.answer()
+        counts = {bulk: len(session.bulk_targets(detail, bulk)) for bulk in session.BULK_ACTIONS}
+        if cb.step == "all":
+            await _edit(call.message, formatting.status_bulk_pick(name, len(detail.students), counts),
+                        reply_markup=status_bulk_kb(gid, wid, counts))
+        else:
+            _, items = await session.class_homework(tg_id, gid)
+            hw = next((h for h in items if h.work_id == wid), None)
+            await _edit(call.message, formatting.status_bulk_confirm(name, hw.text if hw else "", cb.a,
+                                                                     counts[cb.a], len(detail.students)),
+                        reply_markup=status_bulk_confirm_kb(gid, wid, cb.a))
+    elif cb.step == "alldo":
+        await call.answer("⏳ Saqlanmoqda…")
+
+        async def progress(i: int, n: int) -> None:
+            if i % 5 == 0 and i < n:
+                await _edit(call.message, f"⏳ Maqomlar saqlanmoqda: <b>{i}/{n}</b>…")
+
+        await _edit(call.message, "⏳ Maqomlar saqlanmoqda…")
+        try:
+            done, errors = await session.change_status_bulk(tg_id, wid, cb.a, progress)
+            note = formatting.status_bulk_result(done, errors)
+        except session.StatusChangeError as e:
+            note = f"❌ <b>O‘zgartirilmadi:</b> {formatting.escape(str(e))}"
+        except Exception:
+            log.exception("bulk status change failed")
+            note = "❌ <b>Jarayon to‘xtadi:</b> eMaktab javob bermadi. Qaysilari saqlangani quyida ko‘rinadi."
+        await _show_detail(call, gid, wid, note, fresh=True)
+        return
     elif cb.step == "do":
         await call.answer("⏳ Saqlanmoqda…")
         try:

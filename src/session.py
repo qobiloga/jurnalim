@@ -287,3 +287,53 @@ async def change_status(tg_id: int, work_id: str, person_id: str, action: str) -
     if error:
         raise StatusChangeError(error)
     return st.label, new_label
+
+
+# Bulk actions offered in the bot; for one student emaktab names "send back" either reopen or stop
+BULK_ACTIONS = {"close": ("close",), "reopen": ("reopen", "stop"), "cancel": ("cancel",)}
+
+
+def bulk_targets(detail: parsers.HomeworkDetail, bulk: str) -> list[tuple[parsers.StudentStatus, str]]:
+    """Students the bulk action applies to, each with the page action valid for their current status."""
+    out = []
+    for st in detail.students:
+        allowed = parsers.STATUS_ACTIONS.get(st.code, [])
+        act = next((a for a in BULK_ACTIONS[bulk] if a in allowed), None)
+        if act:
+            out.append((st, act))
+    return out
+
+
+async def change_status_bulk(tg_id: int, work_id: str, bulk: str, progress=None) -> tuple[int, list[str]]:
+    """Apply one bulk action to every student it fits; returns (changed count, error lines).
+    One fresh page read, then one status request per student, each written to the audit."""
+    detail = await homework_detail(tg_id, work_id, fresh=True)
+    if not detail.change_url:
+        raise StatusChangeError("Sahifada maqom o‘zgartirish imkoni topilmadi")
+    targets = bulk_targets(detail, bulk)
+    s = await _session(tg_id)
+    done, errors = 0, []
+    for i, (st, act) in enumerate(targets, 1):
+        error, new_label = "", ""
+        try:
+            async with s.lock:
+                res = await s.client.change_status(detail.change_url, work_id, st.person_id, act)
+            error, new_label = str(res.get("error") or ""), str(res.get("v") or "")
+        except SessionExpired:
+            error = "sessiya tugadi"
+        except (httpx.HTTPError, ValueError) as e:
+            error = f"{type(e).__name__}: {e}"
+        await db.log_status_change(tg_id, work_id, st.person_id, st.name, act, st.label, new_label, error)
+        if error:
+            errors.append(f"{st.name}: {error}")
+            if error == "sessiya tugadi":
+                break
+        else:
+            done += 1
+        if progress:
+            await progress(i, len(targets))
+        await asyncio.sleep(0.3)  # keep the request rate gentle for emaktab
+    log.info("bulk status by %s: work %s %s -> %d ok, %d errors", tg_id, work_id, bulk, done, len(errors))
+    for key in [k for k in s.cache if f"work={work_id}" in k or "/homework?view=List" in k]:
+        s.cache.pop(key, None)
+    return done, errors
