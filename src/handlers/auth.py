@@ -89,6 +89,8 @@ async def _attempt(message: Message, state: FSMContext, bot: Bot, captcha_answer
         await state.clear()
         await wait.edit_text("⚠️ eMaktab javob bermadi. Birozdan keyin qayta urinib ko‘ring.")
         return
+    # Never log the password; the result and eMaktab's own error text are enough to diagnose
+    log.info("login for %s: %s %s", tg_id, type(result).__name__, getattr(result, "message", ""))
 
     if isinstance(result, LoginOk):
         await state.clear()
