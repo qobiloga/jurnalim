@@ -1,13 +1,14 @@
-"""Read-only HTTP client for emaktab.uz.
+"""HTTP client for emaktab.uz — read-only except for one explicitly allowed write.
 
-The only POST this client ever sends is the login form. Everything else is a GET
-to an emaktab.uz page, so the bot can never change anything on the platform.
+It sends exactly two kinds of POST: the login form, and changing one student's homework
+status (requested by the account owner on 2026-11-03, see change_status). Everything else
+is a GET to an emaktab.uz page; grades and all other data are never changed.
 """
 import json
 import re
 import uuid
 from dataclasses import dataclass
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -16,6 +17,8 @@ DEFAULT_CAPTCHA_PART = "https://login.emaktab.uz/captcha/true/"
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36"
 # GET links that still change state on the server — never follow them
 FORBIDDEN_PATHS = ("logout", "/api/localization/change")
+# Homework status actions the site's own page offers (homeworkDetails.js): the only write allowed
+STATUS_ACTIONS = {"close", "reopen", "stop", "cancel"}
 
 
 class SessionExpired(Exception):
@@ -132,3 +135,24 @@ class EmaktabClient:
             raise SessionExpired()
         r.raise_for_status()
         return r
+
+    async def change_status(self, change_url: str, work_id: str, person_id: str, action: str) -> dict:
+        """Set one student's status on one homework, exactly as the homework page does.
+
+        change_url comes from that page (it carries the page's anti-forgery token); only the
+        status endpoint and the four page actions are accepted.
+        Returns {"id": "ts<pid>_<status>", "css": ..., "v": "<new label>"} or {"error": ...}.
+        """
+        u = urlparse(change_url)
+        if u.hostname != "schools.emaktab.uz" or u.path != "/v2/ajax" or parse_qs(u.query).get("a") != ["tse"]:
+            raise ValueError(f"Not the homework status endpoint: {change_url}")
+        if action not in STATUS_ACTIONS:
+            raise ValueError(f"Unknown status action: {action}")
+        if not (work_id.isdigit() and person_id.isdigit()):
+            raise ValueError("work_id and person_id must be numeric")
+        r = await self._http.post(change_url, data={"wid": work_id, "pid": person_id, "act": action},
+                                  headers={"X-Requested-With": "XMLHttpRequest"}, follow_redirects=False)
+        if r.is_redirect and "login.emaktab.uz" in r.headers.get("location", ""):
+            raise SessionExpired()
+        r.raise_for_status()
+        return r.json()

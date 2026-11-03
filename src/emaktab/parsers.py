@@ -34,6 +34,24 @@ class Homework:
     class_name: str
     lesson: str
     status: str
+    work_id: str = ""
+
+
+@dataclass
+class StudentStatus:
+    person_id: str
+    name: str
+    code: str      # emaktab status id: 1 berilgan, 6 Bajarildi, … (see STATUS_ACTIONS)
+    label: str     # the status text the page shows
+
+
+@dataclass
+class HomeworkDetail:
+    work_id: str
+    subject: str = ""
+    due: str = ""
+    change_url: str = ""   # status endpoint with this page's anti-forgery token
+    students: list[StudentStatus] = field(default_factory=list)
 
 
 @dataclass
@@ -173,14 +191,53 @@ def parse_homework(html: str) -> tuple[int, list[Homework]]:
         tds = tr.find_all("td")
         if len(tds) < 6:
             continue
+        link = tds[0].find("a", href=True)
         out.append(Homework(
             text=_clean(tds[0].get_text()),
             subject=_clean(tds[1].get_text()),
             class_name=_clean(tds[2].get_text()),
             lesson=_clean(tds[3].get_text(" ")),
             status=_clean(tds[5].get_text()),
+            work_id=_query(link["href"], "work") if link else "",
         ))
     return total, out
+
+
+# Actions the homework page offers for each status code (from its homeworkDetails.js)
+STATUS_ACTIONS = {
+    "1": ["close", "cancel"], "2": ["close", "cancel"], "4": ["close", "cancel"],
+    "3": ["stop", "close", "cancel"],
+    "5": ["close", "reopen"], "7": ["close", "reopen"],
+    "6": ["reopen"],
+}
+
+
+def parse_homework_detail(html: str, work_id: str) -> HomeworkDetail:
+    """/v2/homework?work=…: the info list (Fan, Bajarish muddati …) and one row per student.
+
+    Student rows are tr#p<person_id>; the status cell is td.tse#ts<person_id>_<code>.
+    """
+    soup = _soup(html)
+    d = HomeworkDetail(work_id)
+    decoded = re.sub(r"\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), html)
+    m = re.search(r'"changeStatusUrl"\s*:\s*"([^"]+)"', decoded)
+    d.change_url = m.group(1) if m else ""
+    for dt in soup.find_all("dt"):
+        dd = dt.find_next_sibling("dd")
+        key, val = _clean(dt.get_text()).lower(), _clean(dd.get_text(" ")) if dd else ""
+        if key == "fan":
+            d.subject = val
+        elif "muddat" in key:
+            d.due = val
+    for tr in soup.select("tr[id^=p]"):
+        cell = tr.find("td", class_="tse")
+        name = tr.find("td", class_="s2")
+        if not cell or not name or not tr["id"][1:].isdigit():
+            continue
+        a = cell.find("a")
+        d.students.append(StudentStatus(tr["id"][1:], _clean(name.get_text()), cell.get("data-status", ""),
+                                        _clean(a.get_text()) if a else _clean(cell.get_text())))
+    return d
 
 
 def parse_report_subjects(html: str) -> list[tuple[str, str]]:

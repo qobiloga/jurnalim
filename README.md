@@ -11,13 +11,16 @@ and homework right in Telegram. Python 3.12, aiogram 3, SQLite.
 - 🗓 **Bugungi darslarim** — today's lessons with finished ✅ / current 🔴 / next lesson
 - 📅 **Haftalik jadvalim** — weekly schedule with week navigation
 - 📚 **Sinflarim** — every class: its weekly schedule and homework list
+- ✏️ **Maqom berish** — class → homework → student → new status (Tekshirish va yopish / Qayta ko‘rib chiqishga / Bekor qilish), with confirmation
 - 📊 **BSB / ChSB** — per class, subject and quarter: each student's BSB/ChSB points and quarter grade, class averages and grade counts (from eMaktab's "Sinf bo'yicha BSB/CHSB detalizatsiyasi" report, built through its GET-only handlers)
 - 👤 **Profil** — name, school, classes
 - 🔑 Login with eMaktab credentials; if the site asks for a captcha, the user solves it in the chat
 
-## Read-only by design
-The bot never changes anything on eMaktab. `src/emaktab/client.py` sends exactly one POST — the login
-form; every other request is a GET, and logout/localization links are refused.
+## Read-only, with one exception
+The bot changes nothing on eMaktab except, at the account owner's request, a student's homework status
+(✏️ **Maqom berish**). `src/emaktab/client.py` sends two kinds of POST: the login form and that status change
+(only the page's own actions, after an explicit confirmation, logged to `status_changes`). Everything else is a
+GET; grades are never changed, and logout/localization links are refused.
 
 ## Security
 - Passwords and session cookies are stored Fernet-encrypted (`ENCRYPTION_KEY` in `.env` — never change or lose it).

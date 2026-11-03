@@ -8,7 +8,7 @@ from aiogram.types import BotCommand
 
 from src import db
 from src.config import ADMIN_IDS, BOT_TOKEN, ENCRYPTION_KEY, OPEN_TO_ALL
-from src.handlers import auth, guest, menu, start
+from src.handlers import auth, guest, menu, start, status
 
 
 async def main() -> None:
@@ -22,7 +22,7 @@ async def main() -> None:
     dp = Dispatcher()
 
     # Closed mode (OPEN_TO_ALL=0): the real routers see admins only, everyone else falls through to guest
-    for r in (start.router, auth.router, menu.router):
+    for r in (start.router, auth.router, menu.router, status.router):
         if not OPEN_TO_ALL:
             r.message.filter(F.from_user.id.in_(ADMIN_IDS))
             r.callback_query.filter(F.from_user.id.in_(ADMIN_IDS))

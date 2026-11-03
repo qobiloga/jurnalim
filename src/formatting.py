@@ -2,7 +2,7 @@
 import html
 from datetime import date, datetime
 
-from .emaktab.parsers import Homework, Lesson, SummativeReport, TeacherInfo
+from .emaktab.parsers import Homework, HomeworkDetail, Lesson, SummativeReport, TeacherInfo
 
 WEEKDAYS = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"]
 MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"]
@@ -226,3 +226,51 @@ def summative(class_name: str, subject: str, quarter: int, r: SummativeReport) -
         kept.append(line)
         size += len(line) + 1
     return "\n".join([head, *summary]) + "\n<blockquote expandable>" + "\n".join(kept) + "</blockquote>"
+
+
+# ---- Maqom berish ----
+STATUS_ICONS = {"6": "🟢", "1": "⚪", "2": "⚪", "4": "⚪", "3": "🟠", "5": "🟡", "7": "🟡"}
+ACTION_TEXT = {"close": "✅ Tekshirish va yopish", "reopen": "🔁 Qayta ko‘rib chiqishga",
+               "stop": "🔁 Qayta ko‘rib chiqishga", "cancel": "🚫 Bekor qilish"}
+
+
+def status_pick_class() -> str:
+    return ("✏️ <b>Maqom berish</b>\n"
+            "O‘quvchilarning uy vazifasi holatini eMaktab'da o‘zgartirish.\n\n👇 Sinfni tanlang:")
+
+
+def status_pick_homework(class_name: str, total: int, items: list[Homework]) -> str:
+    if not items:
+        return f"✏️ <b>Maqom berish</b>  ·  👥 {escape(class_name)}\n\n📭 Uy vazifasi topilmadi."
+    more = f"\n<i>Oxirgi {len(items)} tasi ko‘rsatilgan (jami {total}).</i>" if total > len(items) else ""
+    return f"✏️ <b>Maqom berish</b>  ·  👥 {escape(class_name)}\n\n👇 Uy vazifasini tanlang:{more}"
+
+
+def status_detail(class_name: str, hw: Homework | None, d: HomeworkDetail, note: str = "") -> str:
+    subject = d.subject or (hw.subject if hw else "")
+    lines = [f"✏️ <b>Maqom berish</b>  ·  👥 {escape(class_name)}",
+             f"{subject_icon(subject)} <b>{escape(subject)}</b>" + (f"  ·  🗓 {escape(hw.lesson)}" if hw else "")]
+    if hw:
+        lines.append(f"<blockquote>📄 {escape(hw.text)}</blockquote>")
+    counts: dict[str, int] = {}
+    icons: dict[str, str] = {}
+    for st in d.students:
+        counts[st.label] = counts.get(st.label, 0) + 1
+        icons[st.label] = STATUS_ICONS.get(st.code, "🔘")
+    lines.append("  ".join(f"{icons[k]} {escape(k)} — <b>{v}</b>" for k, v in counts.items()) or "O‘quvchilar topilmadi.")
+    if note:
+        lines.append(f"\n{note}")
+    lines.append("\n👇 Maqomini o‘zgartirish uchun o‘quvchini tanlang:")
+    return "\n".join(lines)
+
+
+def status_student(class_name: str, name: str, label: str, code: str, has_actions: bool) -> str:
+    text = (f"✏️ <b>Maqom berish</b>  ·  👥 {escape(class_name)}\n👤 <b>{escape(name)}</b>\n"
+            f"Hozirgi maqom: {STATUS_ICONS.get(code, '🔘')} <b>{escape(label)}</b>\n\n")
+    return text + ("👇 Yangi maqomni tanlang:" if has_actions else "Bu maqomda o‘zgartirish mumkin emas.")
+
+
+def status_confirm(name: str, hw_text: str, label: str, action: str) -> str:
+    return (f"⚠️ <b>Tasdiqlang</b>\n\n👤 {escape(name)}\n📄 {escape(hw_text)}\n\n"
+            f"{escape(label)}  ➜  <b>{ACTION_TEXT[action]}</b>\n\n"
+            "<i>O‘zgarish eMaktab'da saqlanadi va o‘quvchi hamda ota-onasiga ko‘rinadi.</i>")

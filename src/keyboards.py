@@ -3,12 +3,14 @@ from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMar
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from .emaktab.parsers import SchoolClass
+from .formatting import ACTION_TEXT as ACTION_LABELS, STATUS_ICONS
 
 BTN_LOGIN = "🔑 eMaktab'ga kirish"
 BTN_TODAY = "🗓 Bugungi darslarim"
 BTN_WEEK = "📅 Haftalik jadvalim"
 BTN_CLASSES = "📚 Sinflarim"
 BTN_PROFILE = "👤 Profil"
+BTN_STATUS = "✏️ Maqom berish"
 BTN_LOGOUT = "🚪 Chiqish"
 
 
@@ -36,8 +38,8 @@ def main_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=BTN_TODAY), KeyboardButton(text=BTN_WEEK)],
-            [KeyboardButton(text=BTN_CLASSES), KeyboardButton(text=BTN_PROFILE)],
-            [KeyboardButton(text=BTN_LOGOUT)],
+            [KeyboardButton(text=BTN_CLASSES), KeyboardButton(text=BTN_STATUS)],
+            [KeyboardButton(text=BTN_PROFILE), KeyboardButton(text=BTN_LOGOUT)],
         ],
         resize_keyboard=True,
     )
@@ -113,4 +115,76 @@ def summative_quarters_kb(group_id: str, subject_id: str, current: int = 0) -> I
     b.button(text="⬅️ Fanlar", callback_data=ClassCb(group_id=group_id, action="sb"))
     b.button(text="🏫 Sinf menyusi", callback_data=ClassCb(group_id=group_id, action="menu"))
     b.adjust(4, 2)
+    return b.as_markup()
+
+
+# ---- Maqom berish (homework status) section ----
+# emaktab ids are 13–19 digits; base36 keeps three of them inside Telegram's 64-byte callback limit
+def b36(n: str) -> str:
+    v, out = int(n), ""
+    while True:
+        v, r = divmod(v, 36)
+        out = "0123456789abcdefghijklmnopqrstuvwxyz"[r] + out
+        if not v:
+            return out
+
+
+def unb36(s: str) -> str:
+    return str(int(s, 36)) if s else ""
+
+
+class StatusCb(CallbackData, prefix="mq"):
+    step: str        # cls | hw | stu | act | do | list
+    g: str = ""      # group id (base36)
+    w: str = ""      # work id (base36)
+    p: str = ""      # person id (base36)
+    a: str = ""      # action: close | reopen | stop | cancel
+
+
+
+
+def status_classes_kb(classes: list[SchoolClass]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for c in classes:
+        b.button(text=f"👥 {c.name}", callback_data=StatusCb(step="cls", g=b36(c.group_id)))
+    b.adjust(3)
+    return b.as_markup()
+
+
+def status_homework_kb(group_id: str, items: list) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for i, h in enumerate(items, 1):
+        label = f"{i}. {h.subject} · {h.text}"
+        b.button(text=label[:48], callback_data=StatusCb(step="hw", g=b36(group_id), w=b36(h.work_id)))
+    b.button(text="⬅️ Sinflar", callback_data=StatusCb(step="list"))
+    b.adjust(1)
+    return b.as_markup()
+
+
+def status_students_kb(group_id: str, work_id: str, students: list, short) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for st in students:
+        b.button(text=f"{STATUS_ICONS.get(st.code, '🔘')} {short(st.name)}",
+                 callback_data=StatusCb(step="stu", g=b36(group_id), w=b36(work_id), p=b36(st.person_id)))
+    b.button(text="⬅️ Vazifalar", callback_data=StatusCb(step="cls", g=b36(group_id)))
+    b.adjust(*([2] * (len(students) // 2) + [1] * (len(students) % 2)), 1)
+    return b.as_markup()
+
+
+def status_actions_kb(group_id: str, work_id: str, person_id: str, actions: list[str]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for a in actions:
+        b.button(text=ACTION_LABELS[a],
+                 callback_data=StatusCb(step="act", g=b36(group_id), w=b36(work_id), p=b36(person_id), a=a))
+    b.button(text="⬅️ O‘quvchilar", callback_data=StatusCb(step="hw", g=b36(group_id), w=b36(work_id)))
+    b.adjust(1)
+    return b.as_markup()
+
+
+def status_confirm_kb(group_id: str, work_id: str, person_id: str, action: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    ids = dict(g=b36(group_id), w=b36(work_id), p=b36(person_id))
+    b.button(text="✅ Tasdiqlash", callback_data=StatusCb(step="do", a=action, **ids))
+    b.button(text="❌ Bekor", callback_data=StatusCb(step="stu", **ids))
+    b.adjust(2)
     return b.as_markup()

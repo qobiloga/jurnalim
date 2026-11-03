@@ -23,6 +23,20 @@ CREATE TABLE IF NOT EXISTS accounts (
     updated_at       TEXT NOT NULL
 );
 
+-- Audit of every homework status the bot changed on emaktab (the only write it makes)
+CREATE TABLE IF NOT EXISTS status_changes (
+    id           INTEGER PRIMARY KEY,
+    telegram_id  INTEGER NOT NULL,
+    work_id      TEXT NOT NULL,
+    person_id    TEXT NOT NULL,
+    student      TEXT,
+    action       TEXT NOT NULL,
+    old_label    TEXT,
+    new_label    TEXT,
+    error        TEXT,
+    at           TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS login_failures (
     telegram_id      INTEGER PRIMARY KEY,
     failed_attempts  INTEGER NOT NULL DEFAULT 0,
@@ -102,5 +116,16 @@ async def set_lock(telegram_id: int, failed_attempts: int, locked_until: str | N
                ON CONFLICT(telegram_id) DO UPDATE SET failed_attempts = excluded.failed_attempts,
                    locked_until = excluded.locked_until""",
             (telegram_id, failed_attempts, locked_until),
+        )
+        await conn.commit()
+
+
+async def log_status_change(telegram_id: int, work_id: str, person_id: str, student: str, action: str,
+                            old_label: str, new_label: str, error: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            """INSERT INTO status_changes (telegram_id, work_id, person_id, student, action, old_label, new_label,
+                                           error, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (telegram_id, work_id, person_id, student, action, old_label, new_label, error, _now()),
         )
         await conn.commit()

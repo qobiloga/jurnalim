@@ -236,3 +236,54 @@ async def summative(tg_id: int, group_id: str, subject_id: str, quarter: int) ->
         report = parsers.parse_summative(data.get("result") or "")
     s.cache[key] = (time.monotonic(), report)
     return report
+
+
+# ---- Homework statuses (maqom) ----
+def _work_url(school_id: str, work_id: str) -> str:
+    return f"{BASE}/homework?school={school_id}&work={work_id}"
+
+
+async def homework_detail(tg_id: int, work_id: str, fresh: bool = False) -> parsers.HomeworkDetail:
+    t = await teacher(tg_id)
+    return parsers.parse_homework_detail(await fetch(tg_id, _work_url(t.school_id, work_id), cache=not fresh), work_id)
+
+
+class StatusChangeError(Exception):
+    pass
+
+
+async def change_status(tg_id: int, work_id: str, person_id: str, action: str) -> tuple[str, str]:
+    """Change one student's status; returns (old label, new label). Always re-reads the page first,
+    so the action is checked against the student's current status and the page's fresh token."""
+    t = await teacher(tg_id)
+    detail = await homework_detail(tg_id, work_id, fresh=True)
+    st = next((x for x in detail.students if x.person_id == person_id), None)
+    if st is None:
+        raise StatusChangeError("O‘quvchi bu vazifada topilmadi")
+    if action not in parsers.STATUS_ACTIONS.get(st.code, []):
+        raise StatusChangeError(f"“{st.label}” maqomida bu amal mumkin emas")
+    if not detail.change_url:
+        raise StatusChangeError("Sahifada maqom o‘zgartirish imkoni topilmadi")
+    s = await _session(tg_id)
+    error, new_label = "", ""
+    try:
+        async with s.lock:
+            try:
+                res = await s.client.change_status(detail.change_url, work_id, person_id, action)
+            except SessionExpired:
+                await _relogin(tg_id, s)
+                fresh = await homework_detail(tg_id, work_id, fresh=True)
+                res = await s.client.change_status(fresh.change_url, work_id, person_id, action)
+        error = str(res.get("error") or "")
+        new_label = str(res.get("v") or "")
+    except (httpx.HTTPError, ValueError) as e:
+        error = f"{type(e).__name__}: {e}"
+    log.info("status change by %s: work %s person %s %s -> %s %s", tg_id, work_id, person_id, action,
+             new_label, error or "ok")
+    await db.log_status_change(tg_id, work_id, person_id, st.name, action, st.label, new_label, error)
+    # The page and the class list changed on emaktab: drop their cached copies
+    for key in [k for k in s.cache if f"work={work_id}" in k or "/homework?view=List" in k]:
+        s.cache.pop(key, None)
+    if error:
+        raise StatusChangeError(error)
+    return st.label, new_label
