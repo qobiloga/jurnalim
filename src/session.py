@@ -5,6 +5,8 @@ import logging
 import time
 from datetime import date, datetime, timedelta
 
+import httpx
+
 from . import crypto, db
 from .config import CACHE_SECONDS, LOGIN_LOCK_MINUTES, MAX_FAILED_LOGINS
 from .emaktab import parsers
@@ -21,6 +23,10 @@ class NeedsLogin(Exception):
 class Locked(Exception):
     def __init__(self, minutes: int) -> None:
         self.minutes = minutes
+
+
+class NotTeacher(Exception):
+    """The account has no teacher pages (student/parent): the menus are built for teachers only."""
 
 
 class _Session:
@@ -144,11 +150,17 @@ async def teacher(tg_id: int) -> parsers.TeacherInfo:
     s = await _session(tg_id)
     if s.teacher:
         return s.teacher
-    html = await fetch(tg_id, f"{BASE}/myclasses")
-    school_id = parsers.parse_school_id(html)
-    classes = parsers.parse_my_classes(html)
-    tab = await fetch(tg_id, f"{BASE}/schedules/?school={school_id}&tab=teachers")
+    try:
+        html = await fetch(tg_id, f"{BASE}/myclasses")
+        school_id = parsers.parse_school_id(html)
+        tab = await fetch(tg_id, f"{BASE}/schedules/?school={school_id}&tab=teachers") if school_id else ""
+    except httpx.HTTPStatusError as e:
+        log.info("teacher pages refused for %s: %s", tg_id, e.response.status_code)
+        raise NotTeacher() from e
     teacher_id, full_name = parsers.parse_teacher_select(tab)
+    if not teacher_id:
+        raise NotTeacher()
+    classes = parsers.parse_my_classes(html)
     s.teacher = parsers.TeacherInfo(full_name, teacher_id, school_id, parsers.parse_school_name(tab), classes)
     return s.teacher
 

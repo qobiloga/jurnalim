@@ -8,6 +8,8 @@ load_dotenv(BASE_DIR / ".env")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x}
+# 1: everyone can use the bot; 0: only ADMIN_IDS (everyone else gets the "test mode" reply)
+OPEN_TO_ALL = os.getenv("OPEN_TO_ALL", "0") == "1"
 DB_PATH = str(BASE_DIR / os.getenv("DB_PATH", "data/bot.db"))
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
 TIMEZONE = "Asia/Tashkent"

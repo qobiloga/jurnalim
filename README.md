@@ -23,7 +23,8 @@ form; every other request is a GET, and logout/localization links are refused.
 - The password message is deleted from the chat right after it is read.
 - After 2 wrong passwords the user is locked for 10 minutes, so eMaktab's captcha is rarely triggered.
 - `/chiqish` removes the user's login, password and session from the bot.
-- While testing, only `ADMIN_IDS` can use the bot; everyone else gets a "test mode" reply.
+- `OPEN_TO_ALL=1` opens the bot to everyone; with `0` only `ADMIN_IDS` can use it and others get a "test mode" reply.
+- The menus are for teacher accounts; student/parent accounts get a clear "teachers only for now" message.
 
 ## Layout
 ```

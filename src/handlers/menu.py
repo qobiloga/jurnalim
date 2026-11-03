@@ -56,6 +56,11 @@ async def _guard(message: Message, coro):
         await message.answer("🔑 eMaktab'ga qaytadan kirish kerak.", reply_markup=login_kb())
     except session.Locked as e:
         await message.answer(f"⛔ {e.minutes} daqiqadan keyin urinib ko‘ring.")
+    except session.NotTeacher:
+        await message.answer(
+            "👩‍🏫 Hozircha Jurnalim faqat <b>o‘qituvchi</b> akkauntlari uchun ishlaydi.\n"
+            "O‘quvchi va ota-onalar uchun bo‘limlar tez orada qo‘shiladi."
+        )
     except Exception:
         log.exception("emaktab request failed")
         await message.answer("⚠️ eMaktab javob bermadi. Birozdan keyin qayta urinib ko‘ring.")
