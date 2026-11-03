@@ -4,11 +4,12 @@ import json
 import logging
 import time
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import httpx
 
 from . import crypto, db
-from .config import CACHE_SECONDS, LOGIN_LOCK_MINUTES, MAX_FAILED_LOGINS
+from .config import CACHE_SECONDS, LOGIN_LOCK_MINUTES, MAX_FAILED_LOGINS, TIMEZONE
 from .emaktab import parsers
 from .emaktab.client import CaptchaRequired, EmaktabClient, LoginOk, LoginResult, SessionExpired, WrongCredentials
 
@@ -33,7 +34,7 @@ class _Session:
     def __init__(self, client: EmaktabClient) -> None:
         self.client = client
         self.lock = asyncio.Lock()
-        self.cache: dict[str, tuple[float, str]] = {}
+        self.cache: dict[str, tuple[float, object]] = {}  # page HTML by URL, parsed reports by key
         self.teacher: parsers.TeacherInfo | None = None
 
 
@@ -131,10 +132,10 @@ async def _relogin(tg_id: int, s: _Session) -> None:
     await db.save_cookies(tg_id, crypto.encrypt(json.dumps(s.client.export_cookies())))
 
 
-async def fetch(tg_id: int, url: str) -> str:
+async def fetch(tg_id: int, url: str, cache: bool = True) -> str:
     s = await _session(tg_id)
     async with s.lock:
-        hit = s.cache.get(url)
+        hit = s.cache.get(url) if cache else None
         if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
             return hit[1]
         try:
@@ -142,7 +143,8 @@ async def fetch(tg_id: int, url: str) -> str:
         except SessionExpired:
             await _relogin(tg_id, s)
             r = await s.client.get(url)
-        s.cache[url] = (time.monotonic(), r.text)
+        if cache:
+            s.cache[url] = (time.monotonic(), r.text)
         return r.text
 
 
@@ -185,3 +187,52 @@ async def class_homework(tg_id: int, group_id: str) -> tuple[int, list[parsers.H
     t = await teacher(tg_id)
     html = await fetch(tg_id, f"{BASE}/homework?view=List&school={t.school_id}&group={group_id}")
     return parsers.parse_homework(html)
+
+
+# ---- BSB / ChSB ("Sinf bo'yicha BSB/CHSB detalizatsiyasi" report) ----
+# The page builds the report through GET-only handlers: start a task, poll its state, fetch the HTML.
+REPORT_HANDLER = f"{BASE}/AsyncProgressReportHandler"
+TASK_STATE = f"{BASE}/TaskStateHandler"
+TASK_DONE, TASK_FAILED = 3, 4
+
+
+def _study_year() -> int:
+    """emaktab names a school year by its first calendar year (2026/2027 → 2026)."""
+    today = datetime.now(ZoneInfo(TIMEZONE)).date()
+    return today.year if today.month >= 8 else today.year - 1
+
+
+async def summative_subjects(tg_id: int, group_id: str) -> list[tuple[str, str]]:
+    t = await teacher(tg_id)
+    html = await fetch(tg_id, f"{BASE}/reports/default?school={t.school_id}&report=sorch-monitoring-group"
+                              f"&year={_study_year()}&group={group_id}")
+    return parsers.parse_report_subjects(html)
+
+
+async def summative(tg_id: int, group_id: str, subject_id: str, quarter: int) -> parsers.SummativeReport:
+    """BSB/ChSB results of one class and subject for quarter 1..4."""
+    t = await teacher(tg_id)
+    s = await _session(tg_id)
+    key = f"summative:{group_id}:{subject_id}:{quarter}"
+    hit = s.cache.get(key)
+    if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
+        return hit[1]
+    q = (f"sid={t.school_id}&sy={_study_year()}&pn={quarter - 1}&rpt=5&gid={group_id}"
+         f"&sbid={subject_id}&tcid={t.teacher_id}")
+    task = json.loads(await fetch(tg_id, f"{REPORT_HANDLER}?a=buildSorchMonitoringGroupReportData&{q}", cache=False))
+    tid = task["taskID"]
+    for _ in range(25):
+        state = json.loads(await fetch(tg_id, f"{TASK_STATE}?a=gts&tid={tid}", cache=False))
+        if state.get("taskStatus") in (TASK_DONE, TASK_FAILED):
+            break
+        await asyncio.sleep(1.5)
+    else:
+        raise TimeoutError("BSB/ChSB report was not ready in time")
+    if state["taskStatus"] == TASK_FAILED:
+        report = parsers.SummativeReport()
+    else:
+        data = json.loads(await fetch(tg_id, f"{REPORT_HANDLER}?a=htmlSorchMonitoringGroupReportData&tid={tid}&{q}",
+                                      cache=False))
+        report = parsers.parse_summative(data.get("result") or "")
+    s.cache[key] = (time.monotonic(), report)
+    return report

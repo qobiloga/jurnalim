@@ -2,7 +2,7 @@
 import html
 from datetime import date, datetime
 
-from .emaktab.parsers import Homework, Lesson, TeacherInfo
+from .emaktab.parsers import Homework, Lesson, SummativeReport, TeacherInfo
 
 WEEKDAYS = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"]
 MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"]
@@ -174,3 +174,55 @@ def profile(t: TeacherInfo, login: str) -> str:
         "━━━━━━━━━━━━━━━\n"
         f"📚 <b>Sinflarim</b> ({len(t.classes)} ta):\n{classes}"
     )
+
+
+GRADE_ICONS = {"5": "🟢", "4": "🔵", "3": "🟡", "2": "🔴"}
+
+
+def _short_name(full: str) -> str:
+    """"Abdixofizova Guzal Alisher Qizi" → "Abdixofizova G." — keeps 30+ rows readable on a phone."""
+    parts = full.split()
+    return f"{parts[0]} {parts[1][0]}." if len(parts) > 1 else full
+
+
+def summative_pick_subject(class_name: str) -> str:
+    return f"📊 <b>BSB / ChSB</b>  ·  👥 {escape(class_name)}\n\n👇 Fanni tanlang:"
+
+
+def summative_pick_quarter(class_name: str, subject: str) -> str:
+    return (f"📊 <b>BSB / ChSB</b>  ·  👥 {escape(class_name)}\n{subject_icon(subject)} {escape(subject)}\n\n"
+            "👇 Chorakni tanlang:")
+
+
+def summative(class_name: str, subject: str, quarter: int, r: SummativeReport) -> str:
+    head = (f"📊 <b>BSB / ChSB</b>  ·  👥 {escape(class_name)}\n"
+            f"{subject_icon(subject)} {escape(subject)}  ·  🗓 {quarter}-chorak")
+    # A quarter that has not started yet comes back as every student with "0/0"
+    started = any(x.grade or x.bsb not in ("", "0/0") or x.chsb not in ("", "0/0") for x in r.rows)
+    if not started:
+        return head + "\n\n📭 Bu chorak uchun BSB/ChSB natijalari hali kiritilmagan."
+    counts = {g: sum(1 for x in r.rows if x.grade == g) for g in GRADE_ICONS}
+    missing = sum(1 for x in r.rows if not x.grade)
+    grades = "  ".join(f"{GRADE_ICONS[g]} {g} — <b>{n}</b>" for g, n in counts.items() if n)
+    summary = [
+        "━━━━━━━━━━━━━━━",
+        f"📈 O‘rtacha: BSB <b>{escape(r.avg_bsb_pct or '—')}</b>  ·  ChSB <b>{escape(r.avg_chsb_pct or '—')}</b>",
+        f"⭐ Chorak baholari:  {grades or '—'}",
+    ]
+    if missing:
+        summary.append(f"⚪ Yakuniy bahosi yo‘q: <b>{missing}</b> ta o‘quvchi")
+    summary.append("━━━━━━━━━━━━━━━")
+    lines = []
+    for i, x in enumerate(r.rows, 1):
+        mark = f"{GRADE_ICONS.get(x.grade, '⚪')} <b>{escape(x.grade)}</b>" if x.grade else "⚪"
+        lines.append(f"{i}. {escape(_short_name(x.name))} — BSB {escape(x.bsb or '—')} · ChSB {escape(x.chsb or '—')} → {mark}")
+    # Long classes: cut the list (never inside a tag) so the message stays under Telegram's limit
+    base = "\n".join([head, *summary]) + "\n<blockquote expandable></blockquote>"
+    kept, size = [], len(base)
+    for line in lines:
+        if size + len(line) + 1 > LIMIT - 40:
+            kept.append(f"… va yana {len(lines) - len(kept)} ta")
+            break
+        kept.append(line)
+        size += len(line) + 1
+    return "\n".join([head, *summary]) + "\n<blockquote expandable>" + "\n".join(kept) + "</blockquote>"

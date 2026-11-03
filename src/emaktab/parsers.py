@@ -37,6 +37,25 @@ class Homework:
 
 
 @dataclass
+class SummativeRow:
+    """One student's line of the "Sinf bo'yicha BSB/CHSB detalizatsiyasi" report."""
+    name: str
+    bsb: str = ""          # "43/50"
+    bsb_pct: str = ""      # "86%"
+    chsb: str = ""
+    chsb_pct: str = ""
+    score: str = ""        # quarter result in points
+    grade: str = ""        # quarter grade 2..5
+
+
+@dataclass
+class SummativeReport:
+    rows: list[SummativeRow] = field(default_factory=list)
+    avg_bsb_pct: str = ""
+    avg_chsb_pct: str = ""
+
+
+@dataclass
 class TeacherInfo:
     full_name: str
     teacher_id: str
@@ -162,3 +181,49 @@ def parse_homework(html: str) -> tuple[int, list[Homework]]:
             status=_clean(tds[5].get_text()),
         ))
     return total, out
+
+
+def parse_report_subjects(html: str) -> list[tuple[str, str]]:
+    """Subjects offered for the chosen class on a report page: [(id, name)], without the placeholder."""
+    sel = _soup(html).find("select", attrs={"name": "subject"})
+    opts = sel.find_all("option") if sel else []
+    return [(o.get("value", ""), _clean(o.get_text())) for o in opts if o.get("value") not in (None, "", "0")]
+
+
+def parse_summative(html: str) -> SummativeReport:
+    """Result HTML of the BSB/CHSB report: one row per student, then "O'rtacha ball" and "Foiz" rows.
+
+    Columns are found by header text, because the number of BSB-n / CHSB-n columns varies.
+    """
+    table = _soup(html).find("table")
+    report = SummativeReport()
+    if not table:
+        return report
+    trs = table.find_all("tr")
+    heads = [_clean(th.get_text()).lower() for th in trs[0].find_all(["th", "td"])]
+
+    def col(*keys: str) -> int | None:
+        return next((i for i, h in enumerate(heads) if all(k in h for k in keys)), None)
+
+    i_bsb, i_bsb_pct = col("bsb", "jami"), col("bsb", "foiz")
+    i_chsb, i_chsb_pct = col("chsb", "jami"), col("chsb", "foiz")
+    # Two "Chorak uchun yakuniy" columns: points, then the grade
+    final = [i for i, h in enumerate(heads) if "yakun" in h]
+    i_score = final[0] if len(final) >= 2 else None
+    i_grade = final[-1] if final else None
+
+    for tr in trs[1:]:
+        cells = [_clean(td.get_text()) for td in tr.find_all(["td", "th"])]
+        get = lambda i: cells[i].replace("—", "").strip() if i is not None and i < len(cells) else ""  # noqa: E731
+        name = cells[1] if len(cells) > 1 else ""
+        if not cells or not name:
+            continue
+        low = name.lower()
+        if "o‘rtacha" in low or "oʻrtacha" in low or "o'rtacha" in low:
+            report.avg_bsb_pct, report.avg_chsb_pct = get(i_bsb_pct), get(i_chsb_pct)
+            continue
+        if low == "foiz":
+            continue
+        report.rows.append(SummativeRow(name, get(i_bsb), get(i_bsb_pct), get(i_chsb), get(i_chsb_pct),
+                                        get(i_score), get(i_grade)))
+    return report

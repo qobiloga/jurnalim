@@ -16,12 +16,15 @@ from ..keyboards import (
     BTN_TODAY,
     BTN_WEEK,
     ClassCb,
+    SummativeCb,
     WeekCb,
     back_to_class_kb,
     class_menu_kb,
     class_week_kb,
     classes_kb,
     login_kb,
+    summative_quarters_kb,
+    summative_subjects_kb,
     week_nav_kb,
 )
 
@@ -130,7 +133,38 @@ async def class_action(call: CallbackQuery, callback_data: ClassCb) -> None:
         result = await _guard(call.message, session.class_homework(tg_id, gid))
         if result is not None:
             await _edit(call.message, formatting.homework(name, *result), reply_markup=back_to_class_kb(gid))
+    elif callback_data.action == "sb":
+        subjects = await _guard(call.message, session.summative_subjects(tg_id, gid))
+        if subjects is not None:
+            if subjects:
+                await _edit(call.message, formatting.summative_pick_subject(name),
+                            reply_markup=summative_subjects_kb(gid, subjects))
+            else:
+                await _edit(call.message, f"📊 {formatting.escape(name)}: BSB/ChSB uchun fan topilmadi.",
+                            reply_markup=back_to_class_kb(gid))
     await call.answer()
+
+
+@router.callback_query(SummativeCb.filter())
+async def summative(call: CallbackQuery, callback_data: SummativeCb) -> None:
+    tg_id, gid, sid, q = call.from_user.id, callback_data.group_id, callback_data.subject_id, callback_data.quarter
+    t = await _guard(call.message, session.teacher(tg_id))
+    subjects = await _guard(call.message, session.summative_subjects(tg_id, gid)) if t else None
+    if t is None or subjects is None:
+        return await call.answer()
+    name = next((c.name for c in t.classes if c.group_id == gid), "Sinf")
+    subject = next((n for i, n in subjects if i == sid), "Fan")
+    if not q:
+        await _edit(call.message, formatting.summative_pick_quarter(name, subject),
+                    reply_markup=summative_quarters_kb(gid, sid))
+        return await call.answer()
+    await call.answer("⏳ Hisobot tayyorlanmoqda…")
+    await _edit(call.message, f"⏳ <b>{formatting.escape(name)}</b> · {formatting.escape(subject)} · {q}-chorak\n"
+                              "eMaktab'da hisobot tayyorlanmoqda, bir necha soniya kuting…")
+    report = await _guard(call.message, session.summative(tg_id, gid, sid, q))
+    if report is not None:
+        await _edit(call.message, formatting.summative(name, subject, q, report),
+                    reply_markup=summative_quarters_kb(gid, sid, q))
 
 
 @router.message(F.text == BTN_PROFILE)
